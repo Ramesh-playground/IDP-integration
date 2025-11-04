@@ -6,33 +6,42 @@ import sys
 # GitHub API URL and headers
 BASE_URL = "https://api.github.com/scim/v2/enterprises"
 TOKEN = os.getenv("GITHUB_TOKEN")  # Token is passed as an environment variable
-HEADERS = {
-    "Authorization": f"Bearer {TOKEN}",
-    "Accept": "application/scim+json"
-}
+
+def get_headers():
+    token = os.getenv("GITHUB_TOKEN")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/scim+json"
+    }
 
 def get_scim_user_id(enterprise, email):
-    """Fetch the SCIM User ID for a given email."""
-    url = f"{BASE_URL}/{enterprise}/Users"
-    response = requests.get(url, headers=HEADERS)
-
-    if response.status_code != 200:
-        print(f"Failed to fetch SCIM Users: {response.status_code} {response.text}")
-        sys.exit(1)
-    
-    users = response.json().get("Resources", [])
-    for user in users:
-        if user.get("emails", [{}])[0].get("value") == email:
-            return user.get("id")
-    
+    """Fetch the SCIM User ID for a given email, handling pagination and all emails."""
+    count = 100
+    start_index = 1
+    headers = get_headers()
+    while True:
+        url = f"{BASE_URL}/{enterprise}/Users?startIndex={start_index}&count={count}"
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"Failed to fetch SCIM Users: {response.status_code} {response.text}")
+            sys.exit(1)
+        users = response.json().get("Resources", [])
+        for user in users:
+            # Check all emails for a match
+            for em in user.get("emails", []):
+                if em.get("value") == email:
+                    return user.get("id")
+        if len(users) < count:
+            break  # No more pages
+        start_index += count
     print(f"No SCIM User ID found for email: {email}")
     return None
 
 def delete_user(enterprise, scim_user_id):
     """Delete a user by SCIM User ID."""
     url = f"{BASE_URL}/{enterprise}/Users/{scim_user_id}"
-    response = requests.delete(url, headers=HEADERS)
-
+    headers = get_headers()
+    response = requests.delete(url, headers=headers)
     if response.status_code == 204:
         print(f"Successfully deleted user with SCIM ID: {scim_user_id}")
     else:
